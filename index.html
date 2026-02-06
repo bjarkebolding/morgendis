@@ -378,7 +378,6 @@ input[type="number"] { width: 50px; }
     display: flex;
     flex-direction: column;
     min-width: 280px;
-    min-height: 150px;
     box-shadow: 0 2px 10px var(--shadow);
     transition: box-shadow 0.2s;
 }
@@ -404,6 +403,34 @@ input[type="number"] { width: 50px; }
     height: auto !important;
 }
 
+@media (max-width: 768px) {
+    .header { padding: 6px 10px; }
+    .header-brand h1 { font-size: 1rem; }
+    .header-controls { gap: 6px; }
+    .control-group label { font-size: 0.6rem; }
+    select, input[type="text"], input[type="number"] { font-size: 0.65rem; padding: 3px 5px; }
+    #city-search { width: 100px; }
+
+    #workspace { padding: 5px; }
+    .panel {
+        position: static !important;
+        width: 100% !important;
+        height: auto !important;
+        left: auto !important;
+        top: auto !important;
+        margin-bottom: 8px;
+    }
+    .panel-map {
+        height: 400px !important;
+    }
+    .panel-header {
+        cursor: default;
+    }
+    .resize-handle {
+        display: none;
+    }
+}
+
 .panel-header {
     display: flex;
     justify-content: space-between;
@@ -411,12 +438,10 @@ input[type="number"] { width: 50px; }
     padding: 6px 10px;
     background: var(--bg-control);
     border-bottom: 1px solid var(--border);
-    cursor: grab;
     user-select: none;
     gap: 8px;
+    cursor: grab;
 }
-
-.panel-header:active { cursor: grabbing; }
 
 .panel-header h3 {
     font-size: 0.8rem;
@@ -442,25 +467,59 @@ input[type="number"] { width: 50px; }
 }
 
 .panel-content {
-    flex: 1;
     overflow: auto;
     display: flex;
     flex-direction: column;
+}
+
+.panel-map .panel-content {
+    flex: 1;
+    min-height: 200px;
 }
 
 .resize-handle {
     position: absolute;
     bottom: 0;
     right: 0;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     cursor: nwse-resize;
-    background: linear-gradient(135deg, transparent 50%, var(--accent) 50%);
     opacity: 0.4;
-    border-radius: 0 0 8px 0;
+    z-index: 10;
 }
 
-.resize-handle:hover { opacity: 0.7; }
+.resize-handle::after {
+    content: '';
+    position: absolute;
+    bottom: 3px;
+    right: 3px;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--accent);
+    border-bottom: 2px solid var(--accent);
+}
+
+.resize-handle:hover { opacity: 0.8; }
+
+/* City panels: width-only resize handle on right edge */
+.panel:not(.panel-map) .resize-handle {
+    cursor: ew-resize;
+    width: 8px;
+    height: 100%;
+    top: 0;
+    bottom: auto;
+}
+
+.panel:not(.panel-map) .resize-handle::after {
+    bottom: auto;
+    top: 50%;
+    right: 1px;
+    width: 3px;
+    height: 20px;
+    transform: translateY(-50%);
+    border: none;
+    border-right: 2px solid var(--accent);
+}
 
 /* ============================================
    MAP PANEL
@@ -665,8 +724,8 @@ input[type="number"] { width: 50px; }
 }
 
 .forecast-wrapper {
-    min-width: 450px;
-    padding: 10px;
+    min-width: 300px;
+    padding: 10px 0;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -676,6 +735,9 @@ input[type="number"] { width: 50px; }
     display: flex;
     border-bottom: 1px solid var(--border);
     margin-bottom: 6px;
+    /* Align with chart plot area: 20px y-label + 40px y-axis on each side */
+    padding-left: 60px;
+    padding-right: 60px;
 }
 
 .day-header {
@@ -695,6 +757,8 @@ input[type="number"] { width: 50px; }
     display: flex;
     padding: 2px 0;
     margin-bottom: 4px;
+    padding-left: 60px;
+    padding-right: 60px;
 }
 
 .weather-icon-cell {
@@ -756,7 +820,8 @@ input[type="number"] { width: 50px; }
 .wind-arrows-row {
     display: flex;
     padding: 2px 0;
-    margin-left: 20px;
+    padding-left: 60px;
+    padding-right: 60px;
 }
 
 .wind-arrow-cell {
@@ -768,7 +833,8 @@ input[type="number"] { width: 50px; }
 
 .hour-labels {
     display: flex;
-    margin-left: 20px;
+    padding-left: 60px;
+    padding-right: 60px;
     border-top: 1px solid var(--border);
     padding-top: 2px;
 }
@@ -814,10 +880,6 @@ input[type="number"] { width: 50px; }
    FOOTER
    ============================================ */
 .footer {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
     text-align: center;
     padding: 8px 16px;
     background: var(--bg-control);
@@ -825,7 +887,6 @@ input[type="number"] { width: 50px; }
     border-top: 1px solid var(--border);
     font-size: 0.65rem;
     color: var(--text-secondary);
-    z-index: 100;
 }
 
 .footer a { color: var(--accent); }
@@ -1204,32 +1265,54 @@ const WeatherAPI = {
 };
 
 // ============================================
-// PANEL MANAGER (Drag, Resize, Grid Snap)
+// PANEL MANAGER (Absolute Position, Drag, Resize, Snap)
 // ============================================
 const PanelManager = {
     panels: new Map(),
-    zIndex: 10,
-    activePanel: null,
-    dragOffset: { x: 0, y: 0 },
-    isResizing: false,
-    resizeStart: { w: 0, h: 0, x: 0, y: 0 },
+    nextZ: 10,
 
     init() {
-        document.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        document.addEventListener('mouseup', () => this.onMouseUp());
         this.loadLayout();
+        window.addEventListener('resize', Utils.debounce(() => this.onWindowResize(), 200));
     },
+
+    getNextPosition() {
+        const count = this.panels.size;
+        const ws = document.getElementById('workspace');
+        const wsW = ws.clientWidth;
+        const defaultW = Math.min(600, wsW - 40);
+        const offset = count * 30;
+        return {
+            x: Utils.snapToGrid(10 + offset),
+            y: Utils.snapToGrid(10 + offset),
+            w: Utils.snapToGrid(defaultW)
+        };
+    },
+
+    isMobile() { return window.innerWidth <= 768; },
 
     createPanel(type, config = {}) {
         const id = config.id || Utils.generateId();
         const panel = document.createElement('div');
         panel.className = 'panel';
+        if (type === 'map') panel.classList.add('panel-map');
         panel.id = id;
-        panel.style.left = Utils.snapToGrid(config.x || 10 + this.panels.size * 30) + 'px';
-        panel.style.top = Utils.snapToGrid(config.y || 10 + this.panels.size * 30) + 'px';
-        panel.style.width = (config.w || 400) + 'px';
-        panel.style.height = (config.h || 350) + 'px';
-        panel.style.zIndex = ++this.zIndex;
+
+        const mobile = this.isMobile();
+        const pos = this.getNextPosition();
+        const x = config.x != null ? config.x : pos.x;
+        const y = config.y != null ? config.y : pos.y;
+        const w = config.w != null ? config.w : pos.w;
+        const h = config.h != null ? config.h : (type === 'map' ? 400 : 500);
+
+        if (!mobile) {
+            panel.style.left = x + 'px';
+            panel.style.top = y + 'px';
+            panel.style.width = w + 'px';
+            // Only set explicit height for map panels (city panels auto-size to content)
+            if (type === 'map') panel.style.height = h + 'px';
+            panel.style.zIndex = this.nextZ++;
+        }
 
         const title = config.title || (type === 'map' ? 'Radarkort' : config.cityName || 'Panel');
 
@@ -1247,77 +1330,143 @@ const PanelManager = {
         `;
 
         document.getElementById('workspace').appendChild(panel);
-
-        // Store panel data
         this.panels.set(id, { id, type, config, element: panel, minimized: false });
 
-        // Event listeners
-        const header = panel.querySelector('.panel-header');
-        header.addEventListener('mousedown', (e) => this.startDrag(e, panel));
+        if (!mobile) {
+            // Bring to front on click
+            panel.addEventListener('mousedown', () => {
+                panel.style.zIndex = this.nextZ++;
+            });
 
-        panel.querySelector('.resize-handle').addEventListener('mousedown', (e) => this.startResize(e, panel));
+            // Drag from header
+            this.setupDrag(id, panel);
+
+            // Resize from corner (width-only for city panels, both for map)
+            this.setupResize(id, panel, type);
+        }
+
         panel.querySelector('.minimize-btn').addEventListener('click', () => this.toggleMinimize(id));
         panel.querySelector('.duplicate-btn').addEventListener('click', () => this.duplicatePanel(id));
         panel.querySelector('.close-btn').addEventListener('click', () => this.closePanel(id));
 
-        panel.addEventListener('mousedown', () => {
-            panel.style.zIndex = ++this.zIndex;
-        });
-
         return { id, panel, content: panel.querySelector('.panel-content') };
     },
 
-    startDrag(e, panel) {
-        if (e.target.closest('.panel-buttons')) return;
-        e.preventDefault();
-        this.activePanel = panel;
-        this.isResizing = false;
-        panel.classList.add('dragging');
-        const rect = panel.getBoundingClientRect();
-        this.dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    },
+    setupDrag(id, panel) {
+        const header = panel.querySelector('.panel-header');
+        let dragStart = null;
 
-    startResize(e, panel) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.activePanel = panel;
-        this.isResizing = true;
-        this.resizeStart = {
-            w: panel.offsetWidth,
-            h: panel.offsetHeight,
-            x: e.clientX,
-            y: e.clientY
+        const onDragMove = (e) => {
+            if (!dragStart) return;
+            e.preventDefault();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const newX = Math.max(0, dragStart.startX + clientX - dragStart.mouseX);
+            const newY = Math.max(0, dragStart.startY + clientY - dragStart.mouseY);
+            panel.style.left = newX + 'px';
+            panel.style.top = newY + 'px';
         };
-    },
 
-    onMouseMove(e) {
-        if (!this.activePanel) return;
-
-        if (this.isResizing) {
-            const dw = e.clientX - this.resizeStart.x;
-            const dh = e.clientY - this.resizeStart.y;
-            const newW = Math.max(280, this.resizeStart.w + dw);
-            const newH = Math.max(150, this.resizeStart.h + dh);
-            this.activePanel.style.width = Utils.snapToGrid(newW) + 'px';
-            this.activePanel.style.height = Utils.snapToGrid(newH) + 'px';
-        } else {
-            const workspace = document.getElementById('workspace');
-            const wRect = workspace.getBoundingClientRect();
-            let x = e.clientX - wRect.left - this.dragOffset.x;
-            let y = e.clientY - wRect.top - this.dragOffset.y;
-            x = Math.max(0, Math.min(x, wRect.width - this.activePanel.offsetWidth));
-            y = Math.max(0, Math.min(y, wRect.height - this.activePanel.offsetHeight));
-            this.activePanel.style.left = Utils.snapToGrid(x) + 'px';
-            this.activePanel.style.top = Utils.snapToGrid(y) + 'px';
-        }
-    },
-
-    onMouseUp() {
-        if (this.activePanel) {
-            this.activePanel.classList.remove('dragging');
-            this.activePanel = null;
+        const onDragEnd = () => {
+            if (!dragStart) return;
+            panel.classList.remove('dragging');
+            // Snap to grid
+            panel.style.left = Utils.snapToGrid(parseInt(panel.style.left)) + 'px';
+            panel.style.top = Utils.snapToGrid(parseInt(panel.style.top)) + 'px';
+            dragStart = null;
+            document.removeEventListener('mousemove', onDragMove);
+            document.removeEventListener('mouseup', onDragEnd);
+            document.removeEventListener('touchmove', onDragMove);
+            document.removeEventListener('touchend', onDragEnd);
+            this.updateWorkspaceSize();
             this.saveLayout();
-        }
+        };
+
+        const onDragStart = (e) => {
+            if (e.target.closest('.panel-buttons')) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            dragStart = {
+                mouseX: clientX,
+                mouseY: clientY,
+                startX: panel.offsetLeft,
+                startY: panel.offsetTop
+            };
+            panel.classList.add('dragging');
+            panel.style.zIndex = this.nextZ++;
+            document.addEventListener('mousemove', onDragMove);
+            document.addEventListener('mouseup', onDragEnd);
+            document.addEventListener('touchmove', onDragMove, { passive: false });
+            document.addEventListener('touchend', onDragEnd);
+        };
+
+        header.addEventListener('mousedown', onDragStart);
+        header.addEventListener('touchstart', onDragStart, { passive: false });
+    },
+
+    setupResize(id, panel, type) {
+        const handle = panel.querySelector('.resize-handle');
+        const canResizeHeight = type === 'map';
+        let resizeStart = null;
+
+        const onResizeMove = (e) => {
+            if (!resizeStart) return;
+            e.preventDefault();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const newW = Math.max(280, resizeStart.w + clientX - resizeStart.mouseX);
+            panel.style.width = newW + 'px';
+            if (canResizeHeight) {
+                const newH = Math.max(200, resizeStart.h + clientY - resizeStart.mouseY);
+                panel.style.height = newH + 'px';
+            }
+        };
+
+        const onResizeEnd = () => {
+            if (!resizeStart) return;
+            panel.style.width = Utils.snapToGrid(parseInt(panel.style.width)) + 'px';
+            if (canResizeHeight) {
+                panel.style.height = Utils.snapToGrid(parseInt(panel.style.height)) + 'px';
+            }
+            resizeStart = null;
+            document.removeEventListener('mousemove', onResizeMove);
+            document.removeEventListener('mouseup', onResizeEnd);
+            document.removeEventListener('touchmove', onResizeMove);
+            document.removeEventListener('touchend', onResizeEnd);
+            this.updateWorkspaceSize();
+            this.saveLayout();
+        };
+
+        const onResizeStart = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            resizeStart = {
+                mouseX: clientX,
+                mouseY: clientY,
+                w: panel.offsetWidth,
+                h: panel.offsetHeight
+            };
+            panel.style.zIndex = this.nextZ++;
+            document.addEventListener('mousemove', onResizeMove);
+            document.addEventListener('mouseup', onResizeEnd);
+            document.addEventListener('touchmove', onResizeMove, { passive: false });
+            document.addEventListener('touchend', onResizeEnd);
+        };
+
+        handle.addEventListener('mousedown', onResizeStart);
+        handle.addEventListener('touchstart', onResizeStart, { passive: false });
+    },
+
+    updateWorkspaceSize() {
+        const ws = document.getElementById('workspace');
+        let maxBottom = window.innerHeight - 50;
+        this.panels.forEach(p => {
+            const bottom = p.element.offsetTop + p.element.offsetHeight + 20;
+            if (bottom > maxBottom) maxBottom = bottom;
+        });
+        ws.style.minHeight = maxBottom + 'px';
     },
 
     toggleMinimize(id) {
@@ -1332,7 +1481,7 @@ const PanelManager = {
     duplicatePanel(id) {
         const p = this.panels.get(id);
         if (!p) return;
-        const newConfig = { ...p.config, id: null, x: parseInt(p.element.style.left) + 40, y: parseInt(p.element.style.top) + 40 };
+        const newConfig = { ...p.config, id: null, x: null, y: null };
         if (p.type === 'city') {
             CityCards.createCityPanel(newConfig.city, newConfig);
         } else if (p.type === 'map') {
@@ -1350,16 +1499,24 @@ const PanelManager = {
         this.saveLayout();
     },
 
+    onWindowResize() {
+        MapModule.invalidateAllMaps();
+        CityCards.charts.forEach(chart => chart.resize());
+        if (!this.isMobile()) this.updateWorkspaceSize();
+    },
+
     saveLayout() {
+        if (this.isMobile()) return; // Don't save mobile flow layout
         const layout = [];
         this.panels.forEach((p, id) => {
-            layout.push({
+            const entry = {
                 id, type: p.type, config: p.config, minimized: p.minimized,
-                x: parseInt(p.element.style.left),
-                y: parseInt(p.element.style.top),
-                w: p.element.offsetWidth,
-                h: p.element.offsetHeight
-            });
+                x: p.element.offsetLeft, y: p.element.offsetTop,
+                w: p.element.offsetWidth
+            };
+            // Only save height for map panels
+            if (p.type === 'map') entry.h = p.element.offsetHeight;
+            layout.push(entry);
         });
         Utils.storage.set('layout', layout);
     },
@@ -1367,17 +1524,22 @@ const PanelManager = {
     loadLayout() {
         const layout = Utils.storage.get('layout');
         if (!layout || layout.length === 0) {
-            // Default layout
-            MapModule.createMapPanel({ x: 10, y: 10, w: 400, h: 380 });
-            let offset = 0;
-            Config.defaultCities.forEach(city => {
-                CityCards.createCityPanel(city, { x: 420, y: 10 + offset, w: 550, h: 450 });
-                offset += 470;
+            const ws = document.getElementById('workspace');
+            const wsW = ws.clientWidth;
+            const panelW = Utils.snapToGrid(Math.min(600, wsW - 40));
+            MapModule.createMapPanel({ x: 10, y: 10, w: panelW, h: 400 });
+            Config.defaultCities.forEach((city, i) => {
+                CityCards.createCityPanel(city, { x: 10 + (i + 1) * 30, y: 420 + i * 30, w: panelW });
             });
         } else {
             layout.forEach(l => {
-                if (l.type === 'map') MapModule.createMapPanel({ ...l.config, ...l });
-                else if (l.type === 'city') CityCards.createCityPanel(l.config.city, { ...l.config, ...l });
+                const cfg = { ...l.config, x: l.x, y: l.y, w: l.w };
+                if (l.type === 'map') {
+                    cfg.h = l.h || 400;
+                    MapModule.createMapPanel(cfg);
+                } else if (l.type === 'city') {
+                    CityCards.createCityPanel(l.config.city, cfg);
+                }
             });
         }
     }
@@ -1723,22 +1885,31 @@ const CityCards = {
     renderDetailedForecast(panelId, city, data) {
         const container = document.getElementById(`forecast-${panelId}`);
         const hourly = data.hourly;
-        const times = hourly.time.map(t => new Date(t));
+        const allTimes = hourly.time.map(t => new Date(t));
 
-        // Find day boundaries
+        // Filter from current hour
+        const now = new Date();
+        now.setMinutes(0, 0, 0);
+        let startIdx = 0;
+        for (let i = 0; i < allTimes.length; i++) {
+            if (allTimes[i] >= now) { startIdx = i; break; }
+        }
+        const times = allTimes.slice(startIdx);
+
+        // Find day boundaries relative to filtered times
         const days = [];
         let currentDay = null;
         times.forEach((t, i) => {
             const dk = t.toDateString();
-            if (dk !== currentDay) { days.push({ date: t, start: i, end: i }); currentDay = dk; }
-            else days[days.length - 1].end = i;
+            if (dk !== currentDay) { days.push({ date: t, start: i + startIdx, end: i + startIdx }); currentDay = dk; }
+            else days[days.length - 1].end = i + startIdx;
         });
 
         const step = 2;
         const displayIndices = [];
-        for (let i = 0; i < times.length; i += step) displayIndices.push(i);
+        for (let i = startIdx; i < allTimes.length; i += step) displayIndices.push(i);
 
-        let html = '<div class="forecast-wrapper">';
+        let html = '<div class="forecast-wrapper" id="fw-' + panelId + '">';
 
         // Day headers
         html += '<div class="day-headers">';
@@ -1803,7 +1974,7 @@ const CityCards = {
             }
         });
 
-        // Render charts for each group with data
+        // Render charts for each group with data - ALL charts get both y-label and y-label-right for alignment
         Object.entries(chartGroups).forEach(([groupKey, group]) => {
             if (group.vars.length === 0) return;
             html += `<div class="chart-section chart-container-${group.height}">`;
@@ -1814,6 +1985,7 @@ const CityCards = {
             } else {
                 html += `<span class="y-label">${group.label}</span>`;
                 html += `<div class="chart-canvas-wrapper"><canvas id="chart-${groupKey}-${panelId}"></canvas></div>`;
+                html += `<span class="y-label-right">&nbsp;</span>`;
             }
             html += '</div>';
         });
@@ -1832,6 +2004,7 @@ const CityCards = {
             html += `<div class="chart-section chart-container-humidity">`;
             html += `<span class="y-label">Jord</span>`;
             html += `<div class="chart-canvas-wrapper"><canvas id="chart-soil-${panelId}"></canvas></div>`;
+            html += `<span class="y-label-right">&nbsp;</span>`;
             html += '</div>';
         }
 
@@ -1839,6 +2012,7 @@ const CityCards = {
             html += `<div class="chart-section chart-container-humidity">`;
             html += `<span class="y-label">Atmos</span>`;
             html += `<div class="chart-canvas-wrapper"><canvas id="chart-atmos-${panelId}"></canvas></div>`;
+            html += `<span class="y-label-right">&nbsp;</span>`;
             html += '</div>';
         }
 
@@ -1851,28 +2025,30 @@ const CityCards = {
 
         // Hour labels
         html += '<div class="hour-labels">';
-        displayIndices.forEach(i => html += `<div class="hour-label">${times[i].getHours().toString().padStart(2, '0')}</div>`);
+        displayIndices.forEach(i => html += `<div class="hour-label">${allTimes[i].getHours().toString().padStart(2, '0')}</div>`);
         html += '</div>';
 
         html += '</div>';
         container.innerHTML = html;
+
+        // No longer need has-dual-axis class since all charts now have both axes
 
         // Create charts
         setTimeout(() => {
             Object.entries(chartGroups).forEach(([groupKey, group]) => {
                 if (group.vars.length === 0) return;
                 const options = groupKey === 'tempPrecip' ? { tempVars: group.tempVars, precipVars: group.precipVars } : {};
-                this.createChart(panelId, groupKey, group.vars, hourly, times, days, allVars, options);
+                this.createChart(panelId, groupKey, group.vars, hourly, allTimes, days, allVars, options);
             });
 
             // Create soil chart
             if (soilVars.length > 0) {
-                this.createChart(panelId, 'soil', soilVars, hourly, times, days, allVars, {});
+                this.createChart(panelId, 'soil', soilVars, hourly, allTimes, days, allVars, {});
             }
 
             // Create atmospheric chart
             if (atmosVars.length > 0) {
-                this.createChart(panelId, 'atmos', atmosVars, hourly, times, days, allVars, {});
+                this.createChart(panelId, 'atmos', atmosVars, hourly, allTimes, days, allVars, {});
             }
         }, 50);
     },
@@ -1885,18 +2061,22 @@ const CityCards = {
         const existing = this.charts.get(chartKey);
         if (existing) existing.destroy();
 
-        const isDualAxis = groupKey === 'tempPrecip' && options.tempVars && options.precipVars;
-        const tempVars = options.tempVars || [];
+        const isDualAxis = groupKey === 'tempPrecip' && options.tempVars?.length > 0 && options.precipVars?.length > 0;
         const precipVars = options.precipVars || [];
 
         // Helper to get temperature-based color
         const getTempColor = (val) => {
-            if (val < -10) return '#1e40af'; // dark blue
-            if (val < 0) return '#3b82f6';   // blue
-            if (val < 10) return '#f59e0b';  // orange
-            if (val < 20) return '#ef4444';  // red
-            return '#dc2626';                 // dark red
+            if (val < -10) return '#1e40af';
+            if (val < 0) return '#3b82f6';
+            if (val < 10) return '#f59e0b';
+            if (val < 20) return '#ef4444';
+            return '#dc2626';
         };
+
+        // X-axis starts from current hour
+        const now = new Date();
+        now.setMinutes(0, 0, 0);
+        const xMin = now > times[0] ? now : times[0];
 
         const datasets = varIds.map(varId => {
             const v = allVars[varId];
@@ -1914,16 +2094,12 @@ const CityCards = {
                 borderWidth: v.dashed ? 1.5 : 2,
                 borderDash: v.dashed ? [4, 4] : undefined,
                 barPercentage: 0.7,
-                yAxisID: isDualAxis ? (isPrecipVar ? 'yRight' : 'yLeft') : 'y'
+                yAxisID: isDualAxis ? (isPrecipVar ? 'yRight' : 'yLeft') : 'yLeft'
             };
 
-            // Temperature gradient coloring
             if (isTemp) {
                 dataset.segment = {
-                    borderColor: (ctx) => {
-                        const val = ctx.p1.parsed.y;
-                        return getTempColor(val);
-                    }
+                    borderColor: (ctx) => getTempColor(ctx.p1.parsed.y)
                 };
                 dataset.borderColor = getTempColor(hourly[varId][0] || 0);
             }
@@ -1936,40 +2112,31 @@ const CityCards = {
             if (i > 0) annotations[`day${i}`] = { type: 'line', xMin: times[d.start], xMax: times[d.start], borderColor: 'rgba(150,150,150,0.4)', borderWidth: 1 };
         });
 
-        // Configure scales - fixed y-axis width so day separators align across charts
+        // ALL charts get both yLeft and yRight with fixed width for alignment
         const fixedAxisWidth = 40;
-        let scales = {
+        const scales = {
             x: {
                 type: 'time',
                 time: { unit: 'hour', displayFormats: { hour: 'HH' } },
                 ticks: { display: false },
                 grid: { display: false },
-                min: times[0],
+                min: xMin,
                 max: times[times.length - 1]
-            }
-        };
-
-        if (isDualAxis) {
-            scales.yLeft = {
+            },
+            yLeft: {
                 position: 'left',
                 afterFit: (axis) => { axis.width = fixedAxisWidth; },
                 ticks: { font: { size: 8 }, color: '#888' },
                 grid: { color: 'rgba(150,150,150,0.15)' }
-            };
-            scales.yRight = {
+            },
+            yRight: {
                 position: 'right',
                 afterFit: (axis) => { axis.width = fixedAxisWidth; },
-                ticks: { font: { size: 8 }, color: '#60a5fa' },
+                ticks: isDualAxis ? { font: { size: 8 }, color: '#60a5fa' } : { display: false },
                 grid: { display: false },
-                min: 0
-            };
-        } else {
-            scales.y = {
-                afterFit: (axis) => { axis.width = fixedAxisWidth; },
-                ticks: { font: { size: 8 }, color: '#888' },
-                grid: { color: 'rgba(150,150,150,0.15)' }
-            };
-        }
+                min: isDualAxis ? 0 : undefined
+            }
+        };
 
         const chart = new Chart(ctx, {
             type: 'line',
@@ -2077,9 +2244,6 @@ const App = {
 
         document.getElementById('model-select').addEventListener('change', (e) => Utils.storage.set('model', e.target.value));
         document.getElementById('forecast-days').addEventListener('change', (e) => Utils.storage.set('forecastDays', e.target.value));
-
-        // Invalidate maps on window resize
-        window.addEventListener('resize', () => MapModule.invalidateAllMaps());
     }
 };
 
