@@ -429,6 +429,24 @@ input[type="number"] { width: 50px; }
     .resize-handle {
         display: none;
     }
+
+    /* Compact chart labels on mobile */
+    .chart-section .y-label,
+    .chart-section .y-label-right {
+        width: 10px;
+        font-size: 0.4rem;
+    }
+    .day-headers,
+    .weather-icons-row,
+    .wind-arrows-row,
+    .hour-labels {
+        padding-left: 30px;
+        padding-right: 30px;
+    }
+    .weather-icon-cell { font-size: 0.7rem; }
+    .day-header { font-size: 0.6rem; padding: 3px 4px; }
+    .hour-label { font-size: 0.45rem; }
+    .wind-arrow-cell { font-size: 0.6rem; }
 }
 
 .panel-header {
@@ -725,7 +743,7 @@ input[type="number"] { width: 50px; }
 
 .forecast-wrapper {
     min-width: 300px;
-    padding: 10px 0;
+    padding: 10px 6px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -735,9 +753,9 @@ input[type="number"] { width: 50px; }
     display: flex;
     border-bottom: 1px solid var(--border);
     margin-bottom: 6px;
-    /* Align with chart plot area: 20px y-label + 40px y-axis on each side */
-    padding-left: 60px;
-    padding-right: 60px;
+    /* Align with chart plot area: 14px y-label + 30px y-axis on each side */
+    padding-left: 44px;
+    padding-right: 44px;
 }
 
 .day-header {
@@ -757,8 +775,8 @@ input[type="number"] { width: 50px; }
     display: flex;
     padding: 2px 0;
     margin-bottom: 4px;
-    padding-left: 60px;
-    padding-right: 60px;
+    padding-left: 44px;
+    padding-right: 44px;
 }
 
 .weather-icon-cell {
@@ -776,8 +794,8 @@ input[type="number"] { width: 50px; }
 
 .chart-section .y-label {
     flex-shrink: 0;
-    width: 20px;
-    font-size: 0.55rem;
+    width: 14px;
+    font-size: 0.5rem;
     color: var(--text-secondary);
     white-space: nowrap;
     text-align: center;
@@ -787,8 +805,8 @@ input[type="number"] { width: 50px; }
 
 .chart-section .y-label-right {
     flex-shrink: 0;
-    width: 20px;
-    font-size: 0.55rem;
+    width: 14px;
+    font-size: 0.5rem;
     color: var(--accent);
     white-space: nowrap;
     text-align: center;
@@ -820,8 +838,8 @@ input[type="number"] { width: 50px; }
 .wind-arrows-row {
     display: flex;
     padding: 2px 0;
-    padding-left: 60px;
-    padding-right: 60px;
+    padding-left: 44px;
+    padding-right: 44px;
 }
 
 .wind-arrow-cell {
@@ -833,8 +851,8 @@ input[type="number"] { width: 50px; }
 
 .hour-labels {
     display: flex;
-    padding-left: 60px;
-    padding-right: 60px;
+    padding-left: 44px;
+    padding-right: 44px;
     border-top: 1px solid var(--border);
     padding-top: 2px;
 }
@@ -1273,7 +1291,10 @@ const PanelManager = {
 
     init() {
         this.loadLayout();
-        window.addEventListener('resize', Utils.debounce(() => this.onWindowResize(), 200));
+        const debouncedResize = Utils.debounce(() => this.onWindowResize(), 300);
+        window.addEventListener('resize', debouncedResize);
+        // Handle orientation change on mobile (fires after rotation animation)
+        screen.orientation?.addEventListener('change', () => setTimeout(debouncedResize, 200));
     },
 
     getNextPosition() {
@@ -1501,7 +1522,8 @@ const PanelManager = {
 
     onWindowResize() {
         MapModule.invalidateAllMaps();
-        CityCards.charts.forEach(chart => chart.resize());
+        // Re-render all city forecasts to recalculate axis widths and chart sizing
+        CityCards.reRenderAll();
         if (!this.isMobile()) this.updateWorkspaceSize();
     },
 
@@ -2033,24 +2055,22 @@ const CityCards = {
 
         // No longer need has-dual-axis class since all charts now have both axes
 
-        // Create charts
-        setTimeout(() => {
+        // Create charts after layout settles
+        const buildCharts = () => {
             Object.entries(chartGroups).forEach(([groupKey, group]) => {
                 if (group.vars.length === 0) return;
                 const options = groupKey === 'tempPrecip' ? { tempVars: group.tempVars, precipVars: group.precipVars } : {};
                 this.createChart(panelId, groupKey, group.vars, hourly, allTimes, days, allVars, options);
             });
-
-            // Create soil chart
             if (soilVars.length > 0) {
                 this.createChart(panelId, 'soil', soilVars, hourly, allTimes, days, allVars, {});
             }
-
-            // Create atmospheric chart
             if (atmosVars.length > 0) {
                 this.createChart(panelId, 'atmos', atmosVars, hourly, allTimes, days, allVars, {});
             }
-        }, 50);
+        };
+        // Use double-rAF to ensure DOM has fully laid out before measuring
+        requestAnimationFrame(() => requestAnimationFrame(buildCharts));
     },
 
     createChart(panelId, groupKey, varIds, hourly, times, days, allVars, options = {}) {
@@ -2113,7 +2133,9 @@ const CityCards = {
         });
 
         // ALL charts get both yLeft and yRight with fixed width for alignment
-        const fixedAxisWidth = 40;
+        const mobile = window.innerWidth <= 768;
+        const fixedAxisWidth = mobile ? 20 : 30;
+        const tickFont = { size: mobile ? 7 : 8 };
         const scales = {
             x: {
                 type: 'time',
@@ -2126,13 +2148,13 @@ const CityCards = {
             yLeft: {
                 position: 'left',
                 afterFit: (axis) => { axis.width = fixedAxisWidth; },
-                ticks: { font: { size: 8 }, color: '#888' },
+                ticks: { font: tickFont, color: '#888', maxTicksLimit: mobile ? 4 : 6 },
                 grid: { color: 'rgba(150,150,150,0.15)' }
             },
             yRight: {
                 position: 'right',
                 afterFit: (axis) => { axis.width = fixedAxisWidth; },
-                ticks: isDualAxis ? { font: { size: 8 }, color: '#60a5fa' } : { display: false },
+                ticks: isDualAxis ? { font: tickFont, color: '#60a5fa', maxTicksLimit: mobile ? 4 : 6 } : { display: false },
                 grid: { display: false },
                 min: isDualAxis ? 0 : undefined
             }
@@ -2173,6 +2195,16 @@ const CityCards = {
             this.resizeObservers.delete(panelId);
         }
         this.weatherData.delete(panelId);
+    },
+
+    reRenderAll() {
+        // Re-render from cached data (handles orientation change, axis width recalc)
+        PanelManager.panels.forEach((p, id) => {
+            if (p.type === 'city') {
+                const data = this.weatherData.get(id);
+                if (data) this.renderDetailedForecast(id, p.config.city, data);
+            }
+        });
     },
 
     refreshAll() {
