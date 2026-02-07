@@ -637,35 +637,58 @@ input[type="number"] { width: 50px; }
 
 /* City markers on map */
 .city-marker-label {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 3px 6px;
-    backdrop-filter: blur(10px);
+    background: rgba(0, 0, 0, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    padding: 3px 7px;
+    backdrop-filter: blur(8px);
     white-space: nowrap;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: fit-content;
+    pointer-events: auto;
+    transition: background 0.2s;
+}
+.city-marker-label:hover {
+    background: rgba(0, 0, 0, 0.8);
 }
 
 .city-marker-label .name {
     font-weight: 600;
-    font-size: 0.7rem;
-    color: var(--text-primary);
+    font-size: 0.65rem;
+    color: #e2e8f0;
+    letter-spacing: 0.02em;
+}
+
+.city-marker-label .weather-icon {
+    font-size: 0.75rem;
+    line-height: 1;
 }
 
 .city-marker-label .temp {
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     font-weight: 700;
-    color: var(--accent);
+    color: #6eb5ff;
 }
 
-.city-marker-label .details {
-    font-size: 0.6rem;
-    color: var(--text-secondary);
+.city-marker-label .wind {
+    font-size: 0.55rem;
+    color: #94a3b8;
+    opacity: 0.9;
+}
+
+.city-marker-label .sep {
+    width: 1px;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.15);
+    flex-shrink: 0;
 }
 
 .leaflet-div-icon {
-    background: none;
-    border: none;
+    background: none !important;
+    border: none !important;
+    overflow: visible !important;
 }
 
 /* ============================================
@@ -1912,17 +1935,29 @@ const MapModule = {
         CityCards.cities.forEach((city, cityId) => {
             this.addCityMarker(mapId, city);
         });
+        // Apply any weather data that already arrived before the map initialized
+        CityCards.weatherData.forEach((data, panelId) => {
+            const p = PanelManager.panels.get(panelId);
+            if (p && p.config.city) {
+                const m = mapData.markers.get(p.config.city.id);
+                if (m && !m.weather) {
+                    m.weather = data;
+                    this.updateMarkerContent(mapId, m);
+                }
+            }
+        });
     },
 
     addCityMarker(mapId, city) {
         const mapData = this.maps.get(mapId);
         if (!mapData) return;
+        if (mapData.markers.has(city.id)) return;
         const icon = L.divIcon({
             className: 'leaflet-div-icon',
             html: `<div class="city-marker-label"><div class="name">${city.name}</div></div>`,
-            iconSize: [80, 40], iconAnchor: [40, 20]
+            iconSize: [0, 0], iconAnchor: [0, 0]
         });
-        const marker = L.marker([city.lat, city.lon], { icon }).addTo(mapData.map);
+        const marker = L.marker([city.lat, city.lon], { icon, interactive: false }).addTo(mapData.map);
         mapData.markers.set(city.id, { marker, city, weather: null });
     },
 
@@ -1936,20 +1971,30 @@ const MapModule = {
         });
     },
 
-    updateMarkerContent(mapId, markerData) {
-        const mapData = this.maps.get(mapId);
-        if (!mapData || !markerData.weather) return;
+    buildMarkerHtml(mapData, markerData) {
+        const w = markerData.weather?.current;
         let html = '<div class="city-marker-label">';
         if (mapData.showLabels) html += `<div class="name">${markerData.city.name}</div>`;
-        if (mapData.showTemp && markerData.weather.current) {
-            html += `<div class="temp">${Math.round(markerData.weather.current.temperature_2m)}°C</div>`;
-            if (mapData.showLabels) {
-                html += `<div class="details">${Utils.getWeatherIcon(markerData.weather.current.weather_code)} ${markerData.weather.current.wind_speed_10m?.toFixed(1) || 0} m/s</div>`;
-            }
+        if (w && (mapData.showLabels || mapData.showTemp)) html += '<div class="sep"></div>';
+        if (w && mapData.showTemp) {
+            html += `<span class="weather-icon">${Utils.getWeatherIcon(w.weather_code)}</span>`;
+            html += `<span class="temp">${Math.round(w.temperature_2m)}°</span>`;
+        }
+        if (w && mapData.showLabels) {
+            html += `<span class="wind">${w.wind_speed_10m?.toFixed(0) || 0} m/s</span>`;
         }
         html += '</div>';
-        markerData.marker.getElement().innerHTML = html;
-        markerData.marker.getElement().style.display = (mapData.showLabels || mapData.showTemp) ? 'block' : 'none';
+        return html;
+    },
+
+    updateMarkerContent(mapId, markerData) {
+        const mapData = this.maps.get(mapId);
+        if (!mapData) return;
+        const el = markerData.marker.getElement();
+        if (!el) return;
+        const show = mapData.showLabels || mapData.showTemp;
+        el.style.display = show ? 'block' : 'none';
+        if (show) el.innerHTML = this.buildMarkerHtml(mapData, markerData);
     },
 
     updateMapMarkers(mapId) {
@@ -2086,8 +2131,7 @@ const CityCards = {
             this.renderDetailedForecast(panelId, city, data);
             MapModule.updateCityMarkerWeather(city.id, data);
             document.getElementById('last-update').textContent = `Opdateret: ${Utils.formatTime(new Date())}`;
-            // Re-arrange after content height changes
-            PanelManager.scheduleArrange();
+            PanelManager.updateWorkspaceSize();
         } catch (e) {
             console.error(`Error for ${city.name}:`, e);
             document.getElementById(`current-${panelId}`).innerHTML = `<div class="error-message">Fejl: ${e.message}</div>`;
