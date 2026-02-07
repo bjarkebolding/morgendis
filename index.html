@@ -689,6 +689,7 @@ input[type="number"] { width: 50px; }
     background: none !important;
     border: none !important;
     overflow: visible !important;
+    transform: translate(-50%, -50%);
 }
 
 /* ============================================
@@ -1495,6 +1496,7 @@ const PanelManager = {
 
             panel.style.left = Math.max(0, newX) + 'px';
             panel.style.top = Math.max(0, newY) + 'px';
+            this.pushNeighbors(id);
         };
 
         const onDragEnd = () => {
@@ -1506,7 +1508,7 @@ const PanelManager = {
             document.removeEventListener('touchend', onDragEnd);
 
             if (dragMoved) {
-                this.resolveOverlap(id);
+                this.pushNeighbors(id);
                 // Update panelOrder based on position without rearranging
                 const dropY = panel.offsetTop;
                 const dropX = panel.offsetLeft;
@@ -1572,6 +1574,8 @@ const PanelManager = {
                 const newH = Math.max(200, resizeStart.h + clientY - resizeStart.mouseY);
                 panel.style.height = Utils.snapToGrid(newH) + 'px';
             }
+            // Shrink overlapping neighbors in real-time
+            this.shrinkOverlapping(id);
         };
 
         const onResizeEnd = () => {
@@ -1581,7 +1585,7 @@ const PanelManager = {
             document.removeEventListener('mouseup', onResizeEnd);
             document.removeEventListener('touchmove', onResizeMove);
             document.removeEventListener('touchend', onResizeEnd);
-            this.resolveOverlap(id);
+            this.shrinkOverlapping(id);
             this.updateWorkspaceSize();
             this.saveLayout();
         };
@@ -1657,6 +1661,91 @@ const PanelManager = {
         }
     },
 
+    shrinkOverlapping(id) {
+        const p = this.panels.get(id);
+        if (!p) return;
+        const el = p.element;
+        const gap = this.gap;
+        const wsW = document.getElementById('workspace').clientWidth;
+        const rect = { l: el.offsetLeft, t: el.offsetTop, r: el.offsetLeft + el.offsetWidth, b: el.offsetTop + el.offsetHeight };
+
+        for (const [otherId, other] of this.panels) {
+            if (otherId === id || other.minimized) continue;
+            const oel = other.element;
+            const ol = oel.offsetLeft, ot = oel.offsetTop;
+            const ow = oel.offsetWidth, oh = oel.offsetHeight;
+
+            // Only act on panels that overlap vertically
+            if (ot + oh <= rect.t || ot >= rect.b) continue;
+
+            // Neighbor is to the right: push it, then shrink if hitting workspace edge
+            if (ol >= rect.l && ol < rect.r + gap) {
+                const newLeft = rect.r + gap;
+                if (newLeft === ol) continue; // already in place
+                const maxRight = wsW - gap;
+                if (newLeft + ow <= maxRight) {
+                    // Just push, keep width
+                    oel.style.left = newLeft + 'px';
+                } else {
+                    // Push and shrink against workspace edge
+                    const newW = maxRight - newLeft;
+                    if (newW >= 280) {
+                        oel.style.left = newLeft + 'px';
+                        oel.style.width = newW + 'px';
+                    }
+                }
+            }
+        }
+    },
+
+    pushNeighbors(id) {
+        const p = this.panels.get(id);
+        if (!p) return;
+        const el = p.element;
+        const gap = this.gap;
+        const wsW = document.getElementById('workspace').clientWidth;
+        const pl = el.offsetLeft, pt = el.offsetTop;
+        const pr = pl + el.offsetWidth, pb = pt + el.offsetHeight;
+
+        for (const [otherId, other] of this.panels) {
+            if (otherId === id || other.minimized) continue;
+            const oel = other.element;
+            const ol = oel.offsetLeft, ot = oel.offsetTop;
+            const ow = oel.offsetWidth, oh = oel.offsetHeight;
+            const or_ = ol + ow, ob = ot + oh;
+
+            // Check actual pixel overlap
+            if (!(pl < or_ && pr > ol && pt < ob && pb > ot)) continue;
+
+            // How much to push to restore gap in each direction
+            const pushR = pr + gap - ol;
+            const pushL = or_ + gap - pl;
+            const pushD = pb + gap - ot;
+            const pushU = ob + gap - pt;
+
+            // Push in direction of least penetration
+            const minH = Math.min(pushR, pushL);
+            const minV = Math.min(pushD, pushU);
+
+            if (minH <= minV) {
+                if (pushR <= pushL) {
+                    const newLeft = pr + gap;
+                    oel.style.left = Math.min(newLeft, wsW - gap - ow) + 'px';
+                } else {
+                    const newLeft = pl - gap - ow;
+                    oel.style.left = Math.max(gap, newLeft) + 'px';
+                }
+            } else {
+                if (pushD <= pushU) {
+                    oel.style.top = (pb + gap) + 'px';
+                } else {
+                    const newTop = pt - gap - oh;
+                    oel.style.top = Math.max(gap, newTop) + 'px';
+                }
+            }
+        }
+    },
+
     toggleMinimize(id) {
         const p = this.panels.get(id);
         if (!p) return;
@@ -1691,6 +1780,7 @@ const PanelManager = {
             MapModule.createMapPanel(newConfig);
         }
         this.scheduleArrange();
+        this.saveLayout();
     },
 
     closePanel(id) {
@@ -1739,16 +1829,55 @@ const PanelManager = {
         Utils.storage.set('layout', layout);
     },
 
+    createDefaultLayout() {
+        const ws = document.getElementById('workspace');
+        const wsW = ws.clientWidth;
+        const gap = this.gap;
+        const mobile = this.isMobile();
+
+        if (mobile) {
+            const panelW = wsW - gap * 2;
+            MapModule.createMapPanel({ w: panelW, h: 400 });
+            Config.defaultCities.forEach(city => CityCards.createCityPanel(city, { w: panelW }));
+            return;
+        }
+
+        // Desktop: city panels left, map right
+        const cityW = Math.min(600, Math.floor((wsW - gap * 3) * 0.55));
+        const mapW = wsW - cityW - gap * 3;
+        const mapH = 500;
+
+        // Create city panels first (left column)
+        Config.defaultCities.forEach(city => CityCards.createCityPanel(city, { w: cityW }));
+
+        // Create map panel (right side)
+        MapModule.createMapPanel({ w: mapW, h: mapH });
+
+        // Position: cities stacked left, map top-right
+        setTimeout(() => {
+            let curY = gap;
+            this.panelOrder.forEach(id => {
+                const p = this.panels.get(id);
+                if (!p) return;
+                if (p.type === 'city') {
+                    p.element.style.left = gap + 'px';
+                    p.element.style.top = curY + 'px';
+                    curY += p.element.offsetHeight + gap;
+                } else if (p.type === 'map') {
+                    p.element.style.left = (cityW + gap * 2) + 'px';
+                    p.element.style.top = gap + 'px';
+                }
+            });
+            this.updateWorkspaceSize();
+            this.saveLayout();
+        }, 500);
+    },
+
     loadLayout() {
         const layout = Utils.storage.get('layout');
         if (!layout || layout.length === 0) {
-            const ws = document.getElementById('workspace');
-            const wsW = ws.clientWidth;
-            const panelW = Math.min(600, wsW - this.gap * 2);
-            MapModule.createMapPanel({ w: panelW, h: 400 });
-            Config.defaultCities.forEach(city => {
-                CityCards.createCityPanel(city, { w: panelW });
-            });
+            this.createDefaultLayout();
+            return;
         } else {
             const hasPositions = layout.every(l => l.x != null && l.y != null);
             layout.forEach(l => {
@@ -1779,7 +1908,7 @@ const PanelManager = {
             }
         }
         // Auto-arrange after all panels are created and content loaded
-        setTimeout(() => this.autoArrange(), 500);
+        setTimeout(() => { this.autoArrange(); this.saveLayout(); }, 500);
     }
 };
 
@@ -2535,6 +2664,7 @@ const CitySearch = {
                 document.getElementById('city-search').value = '';
                 container.classList.remove('active');
                 PanelManager.scheduleArrange();
+                PanelManager.saveLayout();
             });
         });
     }
