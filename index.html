@@ -356,8 +356,12 @@ input[type="number"] { width: 50px; }
     line-height: 1;
 }
 
-.btn-icon:hover { color: var(--accent); }
-.btn-icon.danger:hover { color: #ef4444; }
+@media (hover: hover) {
+    .btn-icon:hover { color: var(--accent); }
+    .btn-icon.danger:hover { color: #ef4444; }
+}
+.btn-icon:active { color: var(--accent); }
+.btn-icon.danger:active { color: #ef4444; }
 .mobile-only { display: none; }
 
 .days-toggle { gap: 0 !important; }
@@ -437,6 +441,30 @@ input[type="number"] { width: 50px; }
     margin-left: 6px;
 }
 
+/* Touch devices: full-width panels, move arrows, no resize */
+@media (pointer: coarse) {
+    .mobile-only {
+        display: flex !important;
+    }
+    .panel {
+        position: static !important;
+        width: 100% !important;
+        height: auto !important;
+        left: auto !important;
+        top: auto !important;
+        margin-bottom: 8px;
+    }
+    .panel-map {
+        height: 400px !important;
+    }
+    .panel-header {
+        cursor: default;
+    }
+    .resize-handle {
+        display: none;
+    }
+}
+
 @media (max-width: 768px) {
     .header { padding: 6px 10px; }
     .header-brand h1 { font-size: 1rem; }
@@ -461,9 +489,6 @@ input[type="number"] { width: 50px; }
     }
     .panel-header {
         cursor: default;
-    }
-    .mobile-only {
-        display: flex !important;
     }
     .resize-handle {
         display: none;
@@ -1347,7 +1372,7 @@ const PanelManager = {
         screen.orientation?.addEventListener('change', () => setTimeout(debouncedResize, 200));
     },
 
-    isMobile() { return window.innerWidth <= 768; },
+    isMobile() { return window.innerWidth <= 768 || window.matchMedia('(pointer: coarse)').matches; },
 
     createPanel(type, config = {}) {
         const id = config.id || Utils.generateId();
@@ -1377,7 +1402,6 @@ const PanelManager = {
                     <button class="btn-icon move-up-btn mobile-only" title="Flyt op">▲</button>
                     <button class="btn-icon move-down-btn mobile-only" title="Flyt ned">▼</button>
                     <button class="btn-icon minimize-btn" title="Minimer">−</button>
-                    <button class="btn-icon duplicate-btn" title="Dupliker">⧉</button>
                     <button class="btn-icon danger close-btn" title="Luk">×</button>
                 </div>
             </div>
@@ -1394,10 +1418,9 @@ const PanelManager = {
             this.setupResize(id, panel, type);
         }
 
-        panel.querySelector('.move-up-btn').addEventListener('click', () => this.movePanelUp(id));
-        panel.querySelector('.move-down-btn').addEventListener('click', () => this.movePanelDown(id));
+        panel.querySelector('.move-up-btn').addEventListener('click', (e) => { e.stopPropagation(); this.movePanelUp(id); e.target.blur(); });
+        panel.querySelector('.move-down-btn').addEventListener('click', (e) => { e.stopPropagation(); this.movePanelDown(id); e.target.blur(); });
         panel.querySelector('.minimize-btn').addEventListener('click', () => this.toggleMinimize(id));
-        panel.querySelector('.duplicate-btn').addEventListener('click', () => this.duplicatePanel(id));
         panel.querySelector('.close-btn').addEventListener('click', () => this.closePanel(id));
         // Clicking the title in the tray restores the panel
         panel.querySelector('.panel-header h3').addEventListener('click', () => {
@@ -1622,33 +1645,42 @@ const PanelManager = {
     },
 
     movePanelUp(id) {
-        const el = this.panels.get(id)?.element;
-        if (!el) return;
-        const prev = el.previousElementSibling;
-        if (prev && prev.classList.contains('panel')) {
-            el.parentNode.insertBefore(el, prev);
-            // Update panelOrder
-            const idx = this.panelOrder.indexOf(id);
-            if (idx > 0) {
-                [this.panelOrder[idx - 1], this.panelOrder[idx]] = [this.panelOrder[idx], this.panelOrder[idx - 1]];
-            }
-            this.saveLayout();
+        const idx = this.panelOrder.indexOf(id);
+        if (idx <= 0) return;
+        [this.panelOrder[idx - 1], this.panelOrder[idx]] = [this.panelOrder[idx], this.panelOrder[idx - 1]];
+        if (this.isMobile()) {
+            // DOM reorder for static layout
+            const el = this.panels.get(id)?.element;
+            const prev = el?.previousElementSibling;
+            if (el && prev) el.parentNode.insertBefore(el, prev);
+        } else {
+            // Swap positions for absolute layout
+            this.swapPanelPositions(id, this.panelOrder[idx]);
         }
+        this.saveLayout();
     },
 
     movePanelDown(id) {
-        const el = this.panels.get(id)?.element;
-        if (!el) return;
-        const next = el.nextElementSibling;
-        if (next && next.classList.contains('panel')) {
-            el.parentNode.insertBefore(next, el);
-            // Update panelOrder
-            const idx = this.panelOrder.indexOf(id);
-            if (idx < this.panelOrder.length - 1) {
-                [this.panelOrder[idx], this.panelOrder[idx + 1]] = [this.panelOrder[idx + 1], this.panelOrder[idx]];
-            }
-            this.saveLayout();
+        const idx = this.panelOrder.indexOf(id);
+        if (idx < 0 || idx >= this.panelOrder.length - 1) return;
+        [this.panelOrder[idx], this.panelOrder[idx + 1]] = [this.panelOrder[idx + 1], this.panelOrder[idx]];
+        if (this.isMobile()) {
+            const el = this.panels.get(id)?.element;
+            const next = el?.nextElementSibling;
+            if (el && next) el.parentNode.insertBefore(next, el);
+        } else {
+            this.swapPanelPositions(id, this.panelOrder[idx]);
         }
+        this.saveLayout();
+    },
+
+    swapPanelPositions(idA, idB) {
+        const a = this.panels.get(idA)?.element;
+        const b = this.panels.get(idB)?.element;
+        if (!a || !b) return;
+        const ax = a.style.left, ay = a.style.top;
+        a.style.left = b.style.left; a.style.top = b.style.top;
+        b.style.left = ax; b.style.top = ay;
     },
 
     updateWorkspaceSize() {
@@ -1807,19 +1839,6 @@ const PanelManager = {
         }
 
         this.updateWorkspaceSize();
-        this.saveLayout();
-    },
-
-    duplicatePanel(id) {
-        const p = this.panels.get(id);
-        if (!p) return;
-        const newConfig = { ...p.config, id: null };
-        if (p.type === 'city') {
-            CityCards.createCityPanel(newConfig.city, newConfig);
-        } else if (p.type === 'map') {
-            MapModule.createMapPanel(newConfig);
-        }
-        this.scheduleArrange();
         this.saveLayout();
     },
 
