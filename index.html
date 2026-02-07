@@ -359,6 +359,24 @@ input[type="number"] { width: 50px; }
 .btn-icon:hover { color: var(--accent); }
 .btn-icon.danger:hover { color: #ef4444; }
 
+.days-toggle { gap: 0 !important; }
+.days-btn {
+    border-radius: 0;
+    background: var(--bg-control);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    opacity: 0.8;
+}
+.days-btn:hover { color: var(--text-primary); opacity: 1; }
+.days-btn:first-child { border-radius: 5px 0 0 5px; }
+.days-btn:last-child { border-radius: 0 5px 5px 0; border-left: none; }
+.days-btn.active {
+    opacity: 1;
+    color: white;
+    background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+    border-color: var(--accent);
+}
+
 /* ============================================
    WORKSPACE - DRAGGABLE PANELS
    ============================================ */
@@ -379,7 +397,7 @@ input[type="number"] { width: 50px; }
     flex-direction: column;
     min-width: 280px;
     box-shadow: 0 2px 10px var(--shadow);
-    transition: box-shadow 0.2s;
+    transition: left 0.25s ease, top 0.25s ease, box-shadow 0.2s;
 }
 
 .panel:hover {
@@ -391,6 +409,7 @@ input[type="number"] { width: 50px; }
     z-index: 999 !important;
     cursor: grabbing;
     box-shadow: 0 8px 30px var(--shadow);
+    transition: box-shadow 0.2s;
 }
 
 .panel.minimized .panel-content,
@@ -934,46 +953,9 @@ input[type="number"] { width: 50px; }
         </div>
 
         <div class="header-controls">
-            <div class="control-group">
-                <label for="theme-select">Tema:</label>
-                <select id="theme-select">
-                    <option value="auto">Auto</option>
-                    <option value="night">Nat</option>
-                    <option value="dawn">Daggry</option>
-                    <option value="morning">Morgen</option>
-                    <option value="afternoon">Eftermiddag</option>
-                    <option value="evening">Aften</option>
-                </select>
-            </div>
-
-            <div class="control-group">
-                <label for="model-select">Model:</label>
-                <select id="model-select">
-                    <option value="">Auto</option>
-                    <optgroup label="Globale">
-                        <option value="ecmwf_ifs025">ECMWF IFS 0.25°</option>
-                        <option value="gfs_seamless">GFS Seamless</option>
-                        <option value="icon_seamless">ICON Seamless</option>
-                        <option value="gem_seamless">GEM</option>
-                        <option value="jma_seamless">JMA</option>
-                    </optgroup>
-                    <optgroup label="Europa">
-                        <option value="icon_eu">ICON-EU</option>
-                        <option value="meteofrance_seamless">Météo-France</option>
-                        <option value="ukmo_seamless">UKMO</option>
-                        <option value="knmi_seamless">KNMI</option>
-                        <option value="dmi_seamless">DMI</option>
-                    </optgroup>
-                    <optgroup label="Høj opløsning">
-                        <option value="icon_d2">ICON-D2</option>
-                        <option value="knmi_harmonie_arome_europe">KNMI Harmonie</option>
-                    </optgroup>
-                </select>
-            </div>
-
-            <div class="control-group">
-                <label for="forecast-days">Dage:</label>
-                <input type="number" id="forecast-days" min="1" max="16" value="2">
+            <div class="control-group days-toggle">
+                <button class="btn days-btn active" data-mode="48h">2 dage</button>
+                <button class="btn days-btn" data-mode="3-9d">3-9 dage</button>
             </div>
 
             <div class="control-group city-search-wrapper">
@@ -1206,18 +1188,9 @@ const TimeTheme = {
         const theme = this.manualTheme || this.getTheme(now.getHours());
         this.apply(theme);
     },
-    setTheme(theme) {
-        this.manualTheme = theme === 'auto' ? null : theme;
-        Utils.storage.set('theme', theme);
-        this.current = null; // Force update
-        this.update();
-    },
     init() {
         document.getElementById('greeting-message').textContent = Utils.getRandomGreeting();
-        const savedTheme = Utils.storage.get('theme', 'auto');
-        document.getElementById('theme-select').value = savedTheme;
-        this.manualTheme = savedTheme === 'auto' ? null : savedTheme;
-        document.getElementById('theme-select').addEventListener('change', (e) => this.setTheme(e.target.value));
+        this.manualTheme = null; // Always auto
         this.update();
         setInterval(() => this.update(), 60000);
     }
@@ -1283,31 +1256,18 @@ const WeatherAPI = {
 };
 
 // ============================================
-// PANEL MANAGER (Absolute Position, Drag, Resize, Snap)
+// PANEL MANAGER (Auto-arrange, no overlap)
 // ============================================
 const PanelManager = {
     panels: new Map(),
-    nextZ: 10,
+    panelOrder: [], // Track order for arrangement
+    gap: 10,
 
     init() {
         this.loadLayout();
         const debouncedResize = Utils.debounce(() => this.onWindowResize(), 300);
         window.addEventListener('resize', debouncedResize);
-        // Handle orientation change on mobile (fires after rotation animation)
         screen.orientation?.addEventListener('change', () => setTimeout(debouncedResize, 200));
-    },
-
-    getNextPosition() {
-        const count = this.panels.size;
-        const ws = document.getElementById('workspace');
-        const wsW = ws.clientWidth;
-        const defaultW = Math.min(600, wsW - 40);
-        const offset = count * 30;
-        return {
-            x: Utils.snapToGrid(10 + offset),
-            y: Utils.snapToGrid(10 + offset),
-            w: Utils.snapToGrid(defaultW)
-        };
     },
 
     isMobile() { return window.innerWidth <= 768; },
@@ -1320,19 +1280,15 @@ const PanelManager = {
         panel.id = id;
 
         const mobile = this.isMobile();
-        const pos = this.getNextPosition();
-        const x = config.x != null ? config.x : pos.x;
-        const y = config.y != null ? config.y : pos.y;
-        const w = config.w != null ? config.w : pos.w;
-        const h = config.h != null ? config.h : (type === 'map' ? 400 : 500);
+        const ws = document.getElementById('workspace');
+        const wsW = ws.clientWidth;
+        const defaultW = Math.min(600, wsW - this.gap * 2);
+        const w = config.w != null ? Math.min(config.w, wsW - this.gap * 2) : defaultW;
+        const h = config.h != null ? config.h : (type === 'map' ? 400 : undefined);
 
         if (!mobile) {
-            panel.style.left = x + 'px';
-            panel.style.top = y + 'px';
             panel.style.width = w + 'px';
-            // Only set explicit height for map panels (city panels auto-size to content)
-            if (type === 'map') panel.style.height = h + 'px';
-            panel.style.zIndex = this.nextZ++;
+            if (type === 'map' && h) panel.style.height = h + 'px';
         }
 
         const title = config.title || (type === 'map' ? 'Radarkort' : config.cityName || 'Panel');
@@ -1350,19 +1306,12 @@ const PanelManager = {
             <div class="resize-handle"></div>
         `;
 
-        document.getElementById('workspace').appendChild(panel);
+        ws.appendChild(panel);
         this.panels.set(id, { id, type, config, element: panel, minimized: false });
+        this.panelOrder.push(id);
 
         if (!mobile) {
-            // Bring to front on click
-            panel.addEventListener('mousedown', () => {
-                panel.style.zIndex = this.nextZ++;
-            });
-
-            // Drag from header
             this.setupDrag(id, panel);
-
-            // Resize from corner (width-only for city panels, both for map)
             this.setupResize(id, panel, type);
         }
 
@@ -1373,13 +1322,72 @@ const PanelManager = {
         return { id, panel, content: panel.querySelector('.panel-content') };
     },
 
+    // Auto-arrange: pack panels top-to-bottom, fitting side-by-side when possible
+    autoArrange() {
+        if (this.isMobile()) return;
+        const ws = document.getElementById('workspace');
+        const wsW = ws.clientWidth;
+        const gap = this.gap;
+
+        // Collect panel dimensions in order
+        const items = this.panelOrder
+            .map(id => this.panels.get(id))
+            .filter(p => p && !p.minimized);
+
+        // Simple row-packing: place panels in rows, fitting side-by-side
+        let curX = gap, curY = gap, rowH = 0;
+        items.forEach(p => {
+            const el = p.element;
+            const w = el.offsetWidth;
+            const h = el.offsetHeight;
+
+            // Does it fit in current row?
+            if (curX + w + gap > wsW && curX > gap) {
+                // Move to next row
+                curX = gap;
+                curY += rowH + gap;
+                rowH = 0;
+            }
+
+            el.style.left = curX + 'px';
+            el.style.top = curY + 'px';
+            curX += w + gap;
+            rowH = Math.max(rowH, h);
+        });
+
+        // Place minimized panels
+        this.panelOrder
+            .map(id => this.panels.get(id))
+            .filter(p => p && p.minimized)
+            .forEach(p => {
+                const el = p.element;
+                const w = el.offsetWidth;
+                if (curX + w + gap > wsW && curX > gap) {
+                    curX = gap;
+                    curY += 40 + gap;
+                }
+                el.style.left = curX + 'px';
+                el.style.top = curY + 'px';
+                curX += w + gap;
+            });
+
+        this.updateWorkspaceSize();
+    },
+
+    // Schedule auto-arrange after DOM settles
+    scheduleArrange() {
+        requestAnimationFrame(() => requestAnimationFrame(() => this.autoArrange()));
+    },
+
     setupDrag(id, panel) {
         const header = panel.querySelector('.panel-header');
         let dragStart = null;
+        let dragMoved = false;
 
         const onDragMove = (e) => {
             if (!dragStart) return;
             e.preventDefault();
+            dragMoved = true;
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             const newX = Math.max(0, dragStart.startX + clientX - dragStart.mouseX);
@@ -1391,16 +1399,36 @@ const PanelManager = {
         const onDragEnd = () => {
             if (!dragStart) return;
             panel.classList.remove('dragging');
-            // Snap to grid
-            panel.style.left = Utils.snapToGrid(parseInt(panel.style.left)) + 'px';
-            panel.style.top = Utils.snapToGrid(parseInt(panel.style.top)) + 'px';
-            dragStart = null;
             document.removeEventListener('mousemove', onDragMove);
             document.removeEventListener('mouseup', onDragEnd);
             document.removeEventListener('touchmove', onDragMove);
             document.removeEventListener('touchend', onDragEnd);
-            this.updateWorkspaceSize();
-            this.saveLayout();
+
+            if (dragMoved) {
+                // Reorder based on drop position: find insertion index
+                const dropY = panel.offsetTop;
+                const dropX = panel.offsetLeft;
+                const oldIdx = this.panelOrder.indexOf(id);
+                this.panelOrder.splice(oldIdx, 1);
+
+                let insertIdx = this.panelOrder.length;
+                for (let i = 0; i < this.panelOrder.length; i++) {
+                    const other = this.panels.get(this.panelOrder[i]);
+                    if (!other) continue;
+                    const oy = other.element.offsetTop;
+                    const ox = other.element.offsetLeft;
+                    if (dropY < oy || (dropY === oy && dropX < ox)) {
+                        insertIdx = i;
+                        break;
+                    }
+                }
+                this.panelOrder.splice(insertIdx, 0, id);
+                this.autoArrange();
+                this.saveLayout();
+            }
+
+            dragStart = null;
+            dragMoved = false;
         };
 
         const onDragStart = (e) => {
@@ -1413,8 +1441,9 @@ const PanelManager = {
                 startX: panel.offsetLeft,
                 startY: panel.offsetTop
             };
+            dragMoved = false;
             panel.classList.add('dragging');
-            panel.style.zIndex = this.nextZ++;
+            panel.style.zIndex = 999;
             document.addEventListener('mousemove', onDragMove);
             document.addEventListener('mouseup', onDragEnd);
             document.addEventListener('touchmove', onDragMove, { passive: false });
@@ -1435,26 +1464,23 @@ const PanelManager = {
             e.preventDefault();
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            const newW = Math.max(280, resizeStart.w + clientX - resizeStart.mouseX);
-            panel.style.width = newW + 'px';
+            const wsW = document.getElementById('workspace').clientWidth;
+            const newW = Math.min(wsW - this.gap * 2, Math.max(280, resizeStart.w + clientX - resizeStart.mouseX));
+            panel.style.width = Utils.snapToGrid(newW) + 'px';
             if (canResizeHeight) {
                 const newH = Math.max(200, resizeStart.h + clientY - resizeStart.mouseY);
-                panel.style.height = newH + 'px';
+                panel.style.height = Utils.snapToGrid(newH) + 'px';
             }
         };
 
         const onResizeEnd = () => {
             if (!resizeStart) return;
-            panel.style.width = Utils.snapToGrid(parseInt(panel.style.width)) + 'px';
-            if (canResizeHeight) {
-                panel.style.height = Utils.snapToGrid(parseInt(panel.style.height)) + 'px';
-            }
             resizeStart = null;
             document.removeEventListener('mousemove', onResizeMove);
             document.removeEventListener('mouseup', onResizeEnd);
             document.removeEventListener('touchmove', onResizeMove);
             document.removeEventListener('touchend', onResizeEnd);
-            this.updateWorkspaceSize();
+            this.autoArrange();
             this.saveLayout();
         };
 
@@ -1469,7 +1495,6 @@ const PanelManager = {
                 w: panel.offsetWidth,
                 h: panel.offsetHeight
             };
-            panel.style.zIndex = this.nextZ++;
             document.addEventListener('mousemove', onResizeMove);
             document.addEventListener('mouseup', onResizeEnd);
             document.addEventListener('touchmove', onResizeMove, { passive: false });
@@ -1496,18 +1521,20 @@ const PanelManager = {
         p.minimized = !p.minimized;
         p.element.classList.toggle('minimized', p.minimized);
         p.element.querySelector('.minimize-btn').textContent = p.minimized ? '+' : '−';
+        this.scheduleArrange();
         this.saveLayout();
     },
 
     duplicatePanel(id) {
         const p = this.panels.get(id);
         if (!p) return;
-        const newConfig = { ...p.config, id: null, x: null, y: null };
+        const newConfig = { ...p.config, id: null };
         if (p.type === 'city') {
             CityCards.createCityPanel(newConfig.city, newConfig);
         } else if (p.type === 'map') {
             MapModule.createMapPanel(newConfig);
         }
+        this.scheduleArrange();
     },
 
     closePanel(id) {
@@ -1517,26 +1544,37 @@ const PanelManager = {
         else if (p.type === 'map') MapModule.removeMap(id);
         p.element.remove();
         this.panels.delete(id);
+        this.panelOrder = this.panelOrder.filter(pid => pid !== id);
+        this.autoArrange();
         this.saveLayout();
     },
 
     onWindowResize() {
         MapModule.invalidateAllMaps();
-        // Re-render all city forecasts to recalculate axis widths and chart sizing
         CityCards.reRenderAll();
-        if (!this.isMobile()) this.updateWorkspaceSize();
+        if (!this.isMobile()) {
+            // Clamp widths to fit viewport
+            const wsW = document.getElementById('workspace').clientWidth;
+            this.panels.forEach(p => {
+                const maxW = wsW - this.gap * 2;
+                if (p.element.offsetWidth > maxW) {
+                    p.element.style.width = maxW + 'px';
+                }
+            });
+            this.autoArrange();
+        }
     },
 
     saveLayout() {
-        if (this.isMobile()) return; // Don't save mobile flow layout
+        if (this.isMobile()) return;
         const layout = [];
-        this.panels.forEach((p, id) => {
+        this.panelOrder.forEach(id => {
+            const p = this.panels.get(id);
+            if (!p) return;
             const entry = {
                 id, type: p.type, config: p.config, minimized: p.minimized,
-                x: p.element.offsetLeft, y: p.element.offsetTop,
                 w: p.element.offsetWidth
             };
-            // Only save height for map panels
             if (p.type === 'map') entry.h = p.element.offsetHeight;
             layout.push(entry);
         });
@@ -1548,14 +1586,14 @@ const PanelManager = {
         if (!layout || layout.length === 0) {
             const ws = document.getElementById('workspace');
             const wsW = ws.clientWidth;
-            const panelW = Utils.snapToGrid(Math.min(600, wsW - 40));
-            MapModule.createMapPanel({ x: 10, y: 10, w: panelW, h: 400 });
-            Config.defaultCities.forEach((city, i) => {
-                CityCards.createCityPanel(city, { x: 10 + (i + 1) * 30, y: 420 + i * 30, w: panelW });
+            const panelW = Math.min(600, wsW - this.gap * 2);
+            MapModule.createMapPanel({ w: panelW, h: 400 });
+            Config.defaultCities.forEach(city => {
+                CityCards.createCityPanel(city, { w: panelW });
             });
         } else {
             layout.forEach(l => {
-                const cfg = { ...l.config, x: l.x, y: l.y, w: l.w };
+                const cfg = { ...l.config, w: l.w };
                 if (l.type === 'map') {
                     cfg.h = l.h || 400;
                     MapModule.createMapPanel(cfg);
@@ -1564,6 +1602,8 @@ const PanelManager = {
                 }
             });
         }
+        // Auto-arrange after all panels are created and content loaded
+        setTimeout(() => this.autoArrange(), 500);
     }
 };
 
@@ -1844,7 +1884,10 @@ const CityCards = {
                 else this.selectedVariables.delete(varId);
                 Utils.storage.set('selectedVariables', [...this.selectedVariables]);
                 const data = this.weatherData.get(panelId);
-                if (data) this.renderDetailedForecast(panelId, city, data);
+                if (data) {
+                    this.renderDetailedForecast(panelId, city, data);
+                    PanelManager.scheduleArrange();
+                }
             }
         });
 
@@ -1868,8 +1911,8 @@ const CityCards = {
     },
 
     async fetchAndRender(panelId, city) {
-        const model = document.getElementById('model-select').value;
-        const days = parseInt(document.getElementById('forecast-days').value);
+        const model = '';
+        const days = 9; // Always fetch 9 days, time window filtered in render
 
         try {
             const data = await WeatherAPI.fetchForecast(city, model, days);
@@ -1878,6 +1921,8 @@ const CityCards = {
             this.renderDetailedForecast(panelId, city, data);
             MapModule.updateCityMarkerWeather(city.id, data);
             document.getElementById('last-update').textContent = `Opdateret: ${Utils.formatTime(new Date())}`;
+            // Re-arrange after content height changes
+            PanelManager.scheduleArrange();
         } catch (e) {
             console.error(`Error for ${city.name}:`, e);
             document.getElementById(`current-${panelId}`).innerHTML = `<div class="error-message">Fejl: ${e.message}</div>`;
@@ -1909,16 +1954,40 @@ const CityCards = {
         const hourly = data.hourly;
         const allTimes = hourly.time.map(t => new Date(t));
 
-        // Filter from current hour
+        // Determine time window based on forecast mode
+        const mode = Utils.storage.get('forecastMode', '48h');
         const now = new Date();
         now.setMinutes(0, 0, 0);
+
         let startIdx = 0;
         for (let i = 0; i < allTimes.length; i++) {
             if (allTimes[i] >= now) { startIdx = i; break; }
         }
-        const times = allTimes.slice(startIdx);
 
-        // Find day boundaries relative to filtered times
+        // Calculate end index based on mode
+        let endIdx = allTimes.length;
+        if (mode === '48h') {
+            // Show 48 hours from now
+            const end48 = new Date(now.getTime() + 48 * 3600000);
+            for (let i = startIdx; i < allTimes.length; i++) {
+                if (allTimes[i] > end48) { endIdx = i; break; }
+            }
+        } else {
+            // Show from +48h to +192h (days 3-9)
+            const start48 = new Date(now.getTime() + 48 * 3600000);
+            const end192 = new Date(now.getTime() + 192 * 3600000);
+            for (let i = startIdx; i < allTimes.length; i++) {
+                if (allTimes[i] >= start48) { startIdx = i; break; }
+            }
+            for (let i = startIdx; i < allTimes.length; i++) {
+                if (allTimes[i] > end192) { endIdx = i; break; }
+            }
+        }
+
+        const times = allTimes.slice(startIdx, endIdx);
+        const totalHours = times.length;
+
+        // Find day boundaries
         const days = [];
         let currentDay = null;
         times.forEach((t, i) => {
@@ -1927,9 +1996,13 @@ const CityCards = {
             else days[days.length - 1].end = i + startIdx;
         });
 
-        const step = 2;
+        // Compact labels: increase step when many hours or on mobile
+        const mobile = window.innerWidth <= 768;
+        let step = 2;
+        if (totalHours > 72) step = 6;
+        else if (totalHours > 48 || mobile) step = 3;
         const displayIndices = [];
-        for (let i = startIdx; i < allTimes.length; i += step) displayIndices.push(i);
+        for (let i = startIdx; i < endIdx; i += step) displayIndices.push(i);
 
         let html = '<div class="forecast-wrapper" id="fw-' + panelId + '">';
 
@@ -2093,10 +2166,20 @@ const CityCards = {
             return '#dc2626';
         };
 
-        // X-axis starts from current hour
+        // X-axis range based on forecast mode
+        const mode = Utils.storage.get('forecastMode', '48h');
         const now = new Date();
         now.setMinutes(0, 0, 0);
-        const xMin = now > times[0] ? now : times[0];
+        let xMin, xMax;
+        if (mode === '48h') {
+            xMin = now > times[0] ? now : times[0];
+            xMax = new Date(now.getTime() + 48 * 3600000);
+        } else {
+            xMin = new Date(now.getTime() + 48 * 3600000);
+            xMax = new Date(now.getTime() + 192 * 3600000);
+        }
+        // Clamp to data bounds
+        if (xMax > times[times.length - 1]) xMax = times[times.length - 1];
 
         const datasets = varIds.map(varId => {
             const v = allVars[varId];
@@ -2143,18 +2226,18 @@ const CityCards = {
                 ticks: { display: false },
                 grid: { display: false },
                 min: xMin,
-                max: times[times.length - 1]
+                max: xMax
             },
             yLeft: {
                 position: 'left',
                 afterFit: (axis) => { axis.width = fixedAxisWidth; },
-                ticks: { font: tickFont, color: '#888', maxTicksLimit: mobile ? 4 : 6 },
+                ticks: { font: tickFont, color: '#888', stepSize: 2, precision: 0 },
                 grid: { color: 'rgba(150,150,150,0.15)' }
             },
             yRight: {
                 position: 'right',
                 afterFit: (axis) => { axis.width = fixedAxisWidth; },
-                ticks: isDualAxis ? { font: tickFont, color: '#60a5fa', maxTicksLimit: mobile ? 4 : 6 } : { display: false },
+                ticks: isDualAxis ? { font: tickFont, color: '#60a5fa', stepSize: 2, precision: 0 } : { display: false },
                 grid: { display: false },
                 min: isDualAxis ? 0 : undefined
             }
@@ -2242,6 +2325,7 @@ const CitySearch = {
                 CityCards.createCityPanel({ name: item.dataset.name, lat: parseFloat(item.dataset.lat), lon: parseFloat(item.dataset.lon) });
                 document.getElementById('city-search').value = '';
                 container.classList.remove('active');
+                PanelManager.scheduleArrange();
             });
         });
     }
@@ -2262,20 +2346,25 @@ const App = {
     },
 
     setupControls() {
-        document.getElementById('model-select').addEventListener('change', () => CityCards.refreshAll());
-        document.getElementById('forecast-days').addEventListener('change', () => CityCards.refreshAll());
-        document.getElementById('add-map-btn').addEventListener('click', () => MapModule.createMapPanel());
+        // Days toggle buttons
+        const savedMode = Utils.storage.get('forecastMode', '48h');
+        document.querySelectorAll('.days-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === savedMode);
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.days-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                Utils.storage.set('forecastMode', btn.dataset.mode);
+                CityCards.refreshAll();
+            });
+        });
+
+        document.getElementById('add-map-btn').addEventListener('click', () => {
+            MapModule.createMapPanel();
+            PanelManager.scheduleArrange();
+        });
         document.getElementById('reset-btn').addEventListener('click', () => {
             if (confirm('Nulstil alt?')) { localStorage.clear(); location.reload(); }
         });
-
-        const savedModel = Utils.storage.get('model', '');
-        const savedDays = Utils.storage.get('forecastDays', 2);
-        document.getElementById('model-select').value = savedModel;
-        document.getElementById('forecast-days').value = savedDays;
-
-        document.getElementById('model-select').addEventListener('change', (e) => Utils.storage.set('model', e.target.value));
-        document.getElementById('forecast-days').addEventListener('change', (e) => Utils.storage.set('forecastDays', e.target.value));
     }
 };
 
