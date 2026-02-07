@@ -358,6 +358,7 @@ input[type="number"] { width: 50px; }
 
 .btn-icon:hover { color: var(--accent); }
 .btn-icon.danger:hover { color: #ef4444; }
+.mobile-only { display: none; }
 
 .days-toggle { gap: 0 !important; }
 .days-btn {
@@ -444,7 +445,9 @@ input[type="number"] { width: 50px; }
     select, input[type="text"], input[type="number"] { font-size: 0.65rem; padding: 3px 5px; }
     #city-search { width: 100px; }
 
-    #workspace { padding: 5px; }
+    #workspace {
+        padding: 5px;
+    }
     .panel {
         position: static !important;
         width: 100% !important;
@@ -458,6 +461,9 @@ input[type="number"] { width: 50px; }
     }
     .panel-header {
         cursor: default;
+    }
+    .mobile-only {
+        display: flex !important;
     }
     .resize-handle {
         display: none;
@@ -1368,6 +1374,8 @@ const PanelManager = {
             <div class="panel-header">
                 <h3>${title}${config.coords ? ` <span class="coords">${config.coords}</span>` : ''}</h3>
                 <div class="panel-buttons">
+                    <button class="btn-icon move-up-btn mobile-only" title="Flyt op">▲</button>
+                    <button class="btn-icon move-down-btn mobile-only" title="Flyt ned">▼</button>
                     <button class="btn-icon minimize-btn" title="Minimer">−</button>
                     <button class="btn-icon duplicate-btn" title="Dupliker">⧉</button>
                     <button class="btn-icon danger close-btn" title="Luk">×</button>
@@ -1386,6 +1394,8 @@ const PanelManager = {
             this.setupResize(id, panel, type);
         }
 
+        panel.querySelector('.move-up-btn').addEventListener('click', () => this.movePanelUp(id));
+        panel.querySelector('.move-down-btn').addEventListener('click', () => this.movePanelDown(id));
         panel.querySelector('.minimize-btn').addEventListener('click', () => this.toggleMinimize(id));
         panel.querySelector('.duplicate-btn').addEventListener('click', () => this.duplicatePanel(id));
         panel.querySelector('.close-btn').addEventListener('click', () => this.closePanel(id));
@@ -1609,6 +1619,36 @@ const PanelManager = {
 
         handle.addEventListener('mousedown', onResizeStart);
         handle.addEventListener('touchstart', onResizeStart, { passive: false });
+    },
+
+    movePanelUp(id) {
+        const el = this.panels.get(id)?.element;
+        if (!el) return;
+        const prev = el.previousElementSibling;
+        if (prev && prev.classList.contains('panel')) {
+            el.parentNode.insertBefore(el, prev);
+            // Update panelOrder
+            const idx = this.panelOrder.indexOf(id);
+            if (idx > 0) {
+                [this.panelOrder[idx - 1], this.panelOrder[idx]] = [this.panelOrder[idx], this.panelOrder[idx - 1]];
+            }
+            this.saveLayout();
+        }
+    },
+
+    movePanelDown(id) {
+        const el = this.panels.get(id)?.element;
+        if (!el) return;
+        const next = el.nextElementSibling;
+        if (next && next.classList.contains('panel')) {
+            el.parentNode.insertBefore(next, el);
+            // Update panelOrder
+            const idx = this.panelOrder.indexOf(id);
+            if (idx < this.panelOrder.length - 1) {
+                [this.panelOrder[idx], this.panelOrder[idx + 1]] = [this.panelOrder[idx + 1], this.panelOrder[idx]];
+            }
+            this.saveLayout();
+        }
     },
 
     updateWorkspaceSize() {
